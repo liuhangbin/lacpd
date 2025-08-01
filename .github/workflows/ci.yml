@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main, dev ]
+  push:
+    branches: [ main, dev ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Cache uv dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          .venv
+          .uv/cache
+        key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-
+
+    - name: Install dependencies
+      run: uv sync --dev
+
+    - name: Run linting
+      run: |
+        uv run ruff check src/ tests/
+        uv run black --check src/ tests/
+
+    - name: Run type checking
+      run: uv run mypy src/
+
+    - name: Run tests
+      run: uv run pytest tests/ -v --cov=lacpd --cov-report=xml
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false
+
+  integration-test:
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.12"
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+
+    - name: Install dependencies
+      run: uv sync --dev
+
+    - name: Build binary
+      run: make binary
+
+    - name: Run integration tests (if possible)
+      run: |
+        # Only run integration tests if we have sudo access
+        # This is a basic check - actual integration tests require network namespaces
+        if command -v sudo >/dev/null 2>&1; then
+          echo "Running basic integration test checks..."
+          # Test that binary was created
+          test -f dist/lacpd && echo "Binary created successfully" || exit 1
+          # Test that binary is executable
+          chmod +x dist/lacpd
+          # Test help output
+          ./dist/lacpd --help || exit 1
+        else
+          echo "Skipping integration tests - no sudo access"
+        fi

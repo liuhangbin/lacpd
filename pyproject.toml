@@ -9,7 +9,7 @@ description = "A LACP (Link Aggregation Control Protocol) daemon for simulating 
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 authors = [
-    {name = "LACP Daemon Team", email = "team@example.com"}
+    {name = "LACP Daemon Team", email = "liuhangbin@gmail.com"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

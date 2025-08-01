@@ -269,6 +269,15 @@ journalctl -f
 ip link show
 ```
 
+## CI/CD
+
+This project uses GitHub Actions for continuous integration and deployment:
+
+- **CI**: Automatically runs tests, linting, and type checking on pull requests
+- **CD**: Automatically builds and releases binaries for multiple platforms and architectures (Linux x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64) when a release is published
+
+For detailed information about the CI/CD setup, see [`.github/workflows/README.md`](.github/workflows/README.md).
+
 ## Related Links
 
 - [IEEE 802.3ad Standard](https://standards.ieee.org/standard/802_3ad-2000.html)

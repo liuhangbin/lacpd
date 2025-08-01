@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build-and-release:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-latest
+            arch: x86_64
+            platform: linux
+            python-version: "3.12"
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            platform: linux
+            python-version: "3.12"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        version: "latest"
+
+    - name: Cache uv dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          .venv
+          .uv/cache
+        key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-
+
+    - name: Install dependencies
+      run: uv sync --group build
+
+    - name: Build binary
+      run: |
+        # Set environment variables for target architecture
+        export TARGET_ARCH=${{ matrix.arch }}
+        export TARGET_OS=${{ runner.os }}
+        export TARGET_PLATFORM=${{ matrix.platform }}
+
+        echo "Building for ${{ matrix.platform }} on ${{ matrix.arch }} architecture"
+        echo "Runner OS: ${{ runner.os }}"
+        echo "Runner architecture: $(uname -m)"
+
+                # Build for Linux (both x86_64 and aarch64)
+        if [ "${{ matrix.arch }}" = "aarch64" ]; then
+          # Verify we're on aarch64 runner
+          if [ "$(uname -m)" = "aarch64" ]; then
+            uv run pyinstaller lacpd.spec --clean --distpath dist/linux-${{ matrix.arch }}
+          else
+            echo "Error: Expected aarch64 runner but got $(uname -m)"
+            exit 1
+          fi
+        else
+          # x86_64 builds
+          if [ "$(uname -m)" = "x86_64" ]; then
+            uv run pyinstaller lacpd.spec --clean --distpath dist/linux-${{ matrix.arch }}
+          else
+            echo "Error: Expected x86_64 runner but got $(uname -m)"
+            exit 1
+          fi
+        fi
+
+        # Verify the binary architecture
+        echo "Verifying binary architecture..."
+        file dist/linux-${{ matrix.arch }}/lacpd
+
+    - name: Create release artifacts
+      run: |
+        # Create Linux release artifacts
+        cd dist/linux-${{ matrix.arch }}
+        tar -czf lacpd-linux-${{ matrix.arch }}.tar.gz lacpd
+        cd ../..
+
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: lacpd-${{ matrix.platform }}-${{ matrix.arch }}
+        path: |
+          dist/*/lacpd*.tar.gz
+
+  create-source-archive:
+    runs-on: ubuntu-latest
+    needs: build-and-release
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Create source archive
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        git archive --format=tar.gz --prefix=lacpd-$VERSION/ HEAD > lacpd-$VERSION-source.tar.gz
+
+    - name: Upload source archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: lacpd-source
+        path: lacpd-*-source.tar.gz
+
+  publish-release:
+    runs-on: ubuntu-latest
+    needs: [build-and-release, create-source-archive]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+
+    - name: Create release assets
+      run: |
+        mkdir -p release-assets
+        # Move binary artifacts (only compressed archives)
+        find . -name "lacpd-*.tar.gz" -exec cp {} release-assets/ \;
+        # Move source archive
+        find . -name "lacpd-*-source.tar.gz" -exec cp {} release-assets/ \;
+
+    - name: Upload to release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release-assets/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
