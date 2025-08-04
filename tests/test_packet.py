@@ -80,45 +80,51 @@ class TestLacpduParsing:
 
     def test_parse_lacpdu_valid_packet(self):
         """Test parsing valid LACPDU packet."""
-        # Create a minimal valid LACPDU
-        lacpdu = bytes(
-            [
-                1,
-                1,  # subtype, version
-                1,
-                20,  # Actor TLV type, length
-                0x80,
-                0x00,  # system_priority (32768)
-                0x00,
-                0x11,
-                0x22,
-                0x33,
-                0x44,
-                0x55,  # system MAC
-                0x00,
-                0x01,  # key
-                0x80,
-                0x00,  # port_priority (32768)
-                0x00,
-                0x01,  # port
-                0x3E,  # state
-                0x00,
-                0x00,
-                0x00,  # reserved
-                # ... rest of packet would be filled with zeros
-            ]
-            + [0] * 100
-        )  # Pad to minimum size
+        # Create valid actor and partner info
+        actor_info = {
+            "system_priority": 32768,
+            "system": "00:11:22:33:44:55",
+            "key": 1,
+            "port_priority": 32768,
+            "port": 1,
+            "state": 0x3E,
+        }
+
+        partner_info = {
+            "system_priority": 32768,
+            "system": "AA:BB:CC:DD:EE:FF",
+            "key": 1,
+            "port_priority": 32768,
+            "port": 2,
+            "state": 0x3E,
+        }
+
+        # Build complete LACPDU using build_lacpdu function
+        lacpdu = build_lacpdu(actor_info, partner_info)
 
         result = parse_lacpdu(lacpdu)
 
         assert result is not None
-        assert result["system_priority"] == 32768
-        assert result["system"] == "00:11:22:33:44:55"
-        assert result["key"] == 1
-        assert result["port_priority"] == 32768
-        assert result["port"] == 1
-        assert result["state"] == 0x3E
+        assert "actor" in result
+        assert "partner" in result
+
+        # Check actor info (sender's info)
+        actor = result["actor"]
+        assert actor["system_priority"] == 32768
+        assert actor["system"] == "00:11:22:33:44:55"
+        assert actor["key"] == 1
+        assert actor["port_priority"] == 32768
+        assert actor["port"] == 1
+        assert actor["state"] == 0x3E
+
+        # Check partner info (sender's view of partner)
+        partner = result["partner"]
+        assert partner["system_priority"] == 32768
+        assert partner["system"].lower() == "aa:bb:cc:dd:ee:ff"  # Case-insensitive comparison
+        assert partner["key"] == 1
+        assert partner["port_priority"] == 32768
+        assert partner["port"] == 2
+        assert partner["state"] == 0x3E
 
     def test_parse_lacpdu_too_short(self):
         """Test parsing LACPDU that's too short."""
@@ -198,11 +204,25 @@ class TestRoundTrip:
         # Parse it back
         parsed = parse_lacpdu(lacpdu)
 
-        # Should get the actor info (which represents our partner)
+        # Should get both actor and partner info
         assert parsed is not None
-        assert parsed["system_priority"] == actor_info["system_priority"]
-        assert parsed["system"] == actor_info["system"]
-        assert parsed["key"] == actor_info["key"]
-        assert parsed["port_priority"] == actor_info["port_priority"]
-        assert parsed["port"] == actor_info["port"]
-        assert parsed["state"] == actor_info["state"]
+        assert "actor" in parsed
+        assert "partner" in parsed
+
+        # Actor TLV should contain sender's info (our actor_info)
+        actor = parsed["actor"]
+        assert actor["system_priority"] == actor_info["system_priority"]
+        assert actor["system"] == actor_info["system"]
+        assert actor["key"] == actor_info["key"]
+        assert actor["port_priority"] == actor_info["port_priority"]
+        assert actor["port"] == actor_info["port"]
+        assert actor["state"] == actor_info["state"]
+
+        # Partner TLV should contain sender's view of partner (our partner_info)
+        partner = parsed["partner"]
+        assert partner["system_priority"] == partner_info["system_priority"]
+        assert partner["system"].lower() == partner_info["system"].lower()  # Case-insensitive comparison
+        assert partner["key"] == partner_info["key"]
+        assert partner["port_priority"] == partner_info["port_priority"]
+        assert partner["port"] == partner_info["port"]
+        assert partner["state"] == partner_info["state"]

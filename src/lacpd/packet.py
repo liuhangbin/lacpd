@@ -103,53 +103,84 @@ def build_lacpdu(actor_info: dict, partner_info: dict) -> bytes:
 
 def parse_lacpdu(payload: bytes) -> dict | None:
     """
-    Parse a raw LACPDU payload and extract the Actor's information.
+    Parse a raw LACPDU payload and extract both Actor and Partner information.
 
     Args:
         payload: Raw LACPDU payload bytes
 
     Returns:
-        Dictionary containing actor information or None if parsing fails:
-            - system_priority: System priority (16-bit)
-            - system: System MAC address (string)
-            - key: Aggregation key (16-bit)
-            - port_priority: Port priority (16-bit)
-            - port: Port number (16-bit)
-            - state: State bits (8-bit)
+        Dictionary containing both actor and partner information or None if parsing fails:
+            - actor: Actor TLV information (sender's info)
+            - partner: Partner TLV information (sender's view of partner)
+            Each contains:
+                - system_priority: System priority (16-bit)
+                - system: System MAC address (string)
+                - key: Aggregation key (16-bit)
+                - port_priority: Port priority (16-bit)
+                - port: Port number (16-bit)
+                - state: State bits (8-bit)
     """
     try:
-        # Unpack the Actor TLV, which is our partner's information
-        # LACPDU starts with 2 bytes (subtype, version), then Actor TLV starts at offset 2
+        # LACPDU structure:
+        # Header: subtype(1) + version(1) = 2 bytes
         # Actor TLV: type(1) + len(1) + system_priority(2) + system_mac(6) + key(2) +
-        # port_priority(2) + port(2) + state(1) + reserved(3) = 20 bytes
-        actor_info_start = 2  # Skip header, start at Actor TLV
-        actor_info_end = actor_info_start + 20  # Actor TLV is 20 bytes
+        #           port_priority(2) + port(2) + state(1) + reserved(3) = 20 bytes
+        # Partner TLV: same structure as Actor TLV = 20 bytes
+        # Collector TLV: type(1) + len(1) + max_delay(2) + reserved(12) = 16 bytes
+        # Terminator TLV: type(1) + len(1) + reserved(50) = 52 bytes
 
-        if len(payload) < actor_info_end:
+        if len(payload) < 110:  # Minimum LACPDU size
             return None
 
-        # Basic validation: check LACP header and Actor TLV type
+        # Basic validation: check LACP header
         if payload[0] != 1 or payload[1] != 1:  # Check subtype and version
             return None
 
-        if payload[actor_info_start] != 1:  # Check Actor TLV type
+        # Parse Actor TLV
+        actor_start = 2
+        if payload[actor_start] != 1:  # Check Actor TLV type
             return None
 
-        # Extract Actor TLV data (skip type and len, start with system_priority)
-        actor_data = payload[actor_info_start + 2 : actor_info_end - 3]  # Skip type, len, and reserved
+        actor_data = payload[actor_start + 2 : actor_start + 20 - 3]  # Skip type, len, and reserved
+        (actor_system_priority, actor_system_bytes, actor_key, actor_port_priority, actor_port, actor_state) = (
+            struct.unpack("!H6sHHHB", actor_data)
+        )
+        actor_system_mac = ":".join(f"{b:02x}" for b in actor_system_bytes)
 
-        # Unpack: system_priority(2) + system_mac(6) + key(2) + port_priority(2) + port(2) + state(1)
-        (system_priority, system_bytes, key, port_priority, port, state) = struct.unpack("!H6sHHHB", actor_data)
+        # Parse Partner TLV
+        partner_start = actor_start + 20
+        if payload[partner_start] != 2:  # Check Partner TLV type
+            return None
 
-        system_mac = ":".join(f"{b:02x}" for b in system_bytes)
+        partner_data = payload[partner_start + 2 : partner_start + 20 - 3]  # Skip type, len, and reserved
+        unpacked = struct.unpack("!H6sHHHB", partner_data)
+        (
+            partner_system_priority,
+            partner_system_bytes,
+            partner_key,
+            partner_port_priority,
+            partner_port,
+            partner_state,
+        ) = unpacked
+        partner_system_mac = ":".join(f"{b:02x}" for b in partner_system_bytes)
 
         return {
-            "system_priority": system_priority,
-            "system": system_mac,
-            "key": key,
-            "port_priority": port_priority,
-            "port": port,
-            "state": state,
+            "actor": {
+                "system_priority": actor_system_priority,
+                "system": actor_system_mac,
+                "key": actor_key,
+                "port_priority": actor_port_priority,
+                "port": actor_port,
+                "state": actor_state,
+            },
+            "partner": {
+                "system_priority": partner_system_priority,
+                "system": partner_system_mac,
+                "key": partner_key,
+                "port_priority": partner_port_priority,
+                "port": partner_port,
+                "state": partner_state,
+            },
         }
     except (struct.error, IndexError):
         return None

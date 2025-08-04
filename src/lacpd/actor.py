@@ -387,10 +387,13 @@ class Port:
     def update_partner(self, partner_info: dict | None) -> None:
         """
         Update partner information from received LACPDU.
+
+        Args:
+            partner_info: Partner information from LACPDU actor TLV (sender's info)
         """
         with self.lock:
             if partner_info:
-                # Type conversion: ensure int fields are int, system field is str
+                # Update partner info from LACPDU actor TLV (sender's info)
                 self.partner_info = {k: (int(v) if k != "system" else str(v)) for k, v in partner_info.items()}
                 self.last_rx_time = time.time()
 
@@ -425,12 +428,85 @@ class Port:
                 # Log state change
                 self._log_state_change()
 
-    def _run_selection_logic(self) -> None:
-        """Run the LACP selection logic to determine if port is selected."""
+    def _run_selection_logic(self, lacpdu_info: dict | None = None) -> None:
+        """
+        Run the LACP selection logic to determine if port is selected.
+
+        According to IEEE 802.3ad standard:
+        - Actor selection: compare our actor info with received partner TLV (sender's view of our actor info)
+        - Also check if partner is individual link (Actor_State.Aggregation = 0)
+
+        Args:
+            lacpdu_info: Complete LACPDU information containing both actor and partner TLVs
+        """
         partner_state = int(self.partner_info["state"])
-        self.selected = int(self.actor_info["key"]) == int(self.partner_info["key"]) and not (
-            partner_state & LACP_STATE_EXPIRED
-        )
+
+        # Actor selection: compare our actor info with received partner TLV
+        if lacpdu_info and "actor" in lacpdu_info and "partner" in lacpdu_info:
+            actor_tlv = lacpdu_info["actor"]  # Sender's info (our partner info)
+            partner_tlv = lacpdu_info["partner"]  # Sender's view of our actor info
+
+            # Check if partner is individual link (Actor_State.Aggregation = 0)
+            actor_state = int(actor_tlv["state"])
+            partner_is_individual = not bool(actor_state & LACP_STATE_AGGREGATION)
+
+            if partner_is_individual:
+                # If partner is individual link, we should be selected
+                self.selected = True
+                logger.debug(
+                    f"Actor selection on {self.iface}: "
+                    f"partner is individual link (Actor_State.Aggregation=0), selected=True"
+                )
+            else:
+                # Compare all required fields according to IEEE 802.3ad standard
+                fields_match = (
+                    int(self.actor_info["port"]) == int(partner_tlv["port"])
+                    and int(self.actor_info["port_priority"]) == int(partner_tlv["port_priority"])
+                    and str(self.actor_info["system"]) == str(partner_tlv["system"])
+                    and int(self.actor_info["system_priority"]) == int(partner_tlv["system_priority"])
+                    and int(self.actor_info["key"]) == int(partner_tlv["key"])
+                    and bool(int(self.actor_info["state"]) & LACP_STATE_AGGREGATION)
+                    == bool(int(partner_tlv["state"]) & LACP_STATE_AGGREGATION)
+                )
+
+                # Build debug message in parts to avoid long lines
+                port_match = int(self.actor_info["port"]) == int(partner_tlv["port"])
+                port_priority_match = int(self.actor_info["port_priority"]) == int(partner_tlv["port_priority"])
+                system_match = str(self.actor_info["system"]) == str(partner_tlv["system"])
+                system_priority_match = int(self.actor_info["system_priority"]) == int(partner_tlv["system_priority"])
+                key_match = int(self.actor_info["key"]) == int(partner_tlv["key"])
+                aggregation_match = bool(int(self.actor_info["state"]) & LACP_STATE_AGGREGATION) == bool(
+                    int(partner_tlv["state"]) & LACP_STATE_AGGREGATION
+                )
+
+                logger.debug(
+                    f"Actor selection on {self.iface}: "
+                    f"port_match={port_match}, "
+                    f"port_priority_match={port_priority_match}, "
+                    f"system_match={system_match}, "
+                    f"system_priority_match={system_priority_match}, "
+                    f"key_match={key_match}, "
+                    f"aggregation_match={aggregation_match}, "
+                    f"fields_match={fields_match}"
+                )
+
+                partner_not_expired = not (partner_state & LACP_STATE_EXPIRED)
+                self.selected = fields_match and partner_not_expired
+
+                if not self.selected:
+                    logger.debug(
+                        f"Selection failed on {self.iface}: "
+                        f"fields_match={fields_match}, "
+                        f"partner_not_expired={partner_not_expired} "
+                        f"(partner_state={format_state_string(partner_state)})"
+                    )
+        else:
+            # No LACPDU info received, cannot perform selection
+            self.selected = False
+            logger.debug(
+                f"Actor selection on {self.iface}: "
+                f"no LACPDU info received, selected=False"
+            )
 
     def _run_mux_machine(self) -> None:
         """Run the LACP Mux state machine."""
@@ -444,6 +520,7 @@ class Port:
             self.actor_info["state"] = int(self.actor_info["state"]) & ~LACP_STATE_SYNC
 
         # 2. Mux state transitions
+        old_mux_state = self.mux_state
         if self.mux_state == "DETACHED":
             if self.selected:
                 self.mux_state = "ATTACHED"
@@ -455,6 +532,14 @@ class Port:
         elif self.mux_state == "COLLECTING_DISTRIBUTING":
             if not self.selected or not partner_is_in_sync:
                 self.mux_state = "ATTACHED"
+
+        # Debug logging for mux state transitions
+        if old_mux_state != self.mux_state:
+            logger.debug(
+                f"Mux state transition on {self.iface}: "
+                f"{old_mux_state} -> {self.mux_state} "
+                f"(selected={self.selected}, partner_is_in_sync={partner_is_in_sync})"
+            )
 
         # 3. Update actor's state based on Mux state
         if self.mux_state == "COLLECTING_DISTRIBUTING":
@@ -480,8 +565,7 @@ class Port:
                 if self.partner_info:  # Ensure partner_info is not None
                     self.partner_info["state"] = int(self.partner_info["state"]) & ~LACP_STATE_EXPIRED
 
-            # 2. Run state machines
-            self._run_selection_logic()
+            # 2. Run state machines (selection logic is now called in update_partner)
             self._run_mux_machine()
 
             # 3. Check and apply inject rules
@@ -682,8 +766,10 @@ class LacpActor:
 
             if eth_type == 0x8809:
                 lacpdu_payload = packet[14:]
-                partner_info = parse_lacpdu(lacpdu_payload)
-                port_obj.update_partner(partner_info)
+                lacpdu_info = parse_lacpdu(lacpdu_payload)
+                if lacpdu_info:
+                    port_obj.update_partner(lacpdu_info["actor"])
+                    port_obj._run_selection_logic(lacpdu_info)
 
     def _state_machine_updater(self) -> None:
         """Update state machines for all ports periodically."""
