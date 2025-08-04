@@ -52,6 +52,107 @@ def format_state_string(state: int) -> str:
     return "".join(bits) if bits else "N"
 
 
+def parse_state_string(state_str: str) -> int:
+    """
+    Parse state string into LACP state bits.
+
+    Args:
+        state_str: State string (e.g., "ATG", "0x40", "64")
+
+    Returns:
+        LACP state bits as integer
+    """
+    state_str = state_str.strip().upper()
+
+    # Handle hex format
+    if state_str.startswith("0X"):
+        return int(state_str, 16)
+
+    # Handle decimal format
+    if state_str.isdigit():
+        return int(state_str)
+
+    # Handle bit string format
+    state = 0
+    valid_chars = set("ATGSEFCD")
+    for char in state_str:
+        if char not in valid_chars:
+            raise ValueError(f"Invalid state character: {char}")
+        if char == "A":
+            state |= LACP_STATE_ACTIVE
+        elif char == "T":
+            state |= LACP_STATE_SHORT_TIMEOUT
+        elif char == "G":
+            state |= LACP_STATE_AGGREGATION
+        elif char == "S":
+            state |= LACP_STATE_SYNC
+        elif char == "E":
+            state |= LACP_STATE_EXPIRED
+        elif char == "C":
+            state |= LACP_STATE_COLLECTING
+        elif char == "D":
+            state |= LACP_STATE_DISTRIBUTING
+        elif char == "F":
+            state |= LACP_STATE_DEFAULTED
+
+    return state
+
+
+def parse_inject_rule(inject_str: str) -> tuple[dict[str, int], dict[str, int]]:
+    """
+    Parse inject rule string into condition and target states.
+
+    Args:
+        inject_str: Inject rule string (e.g., "A:ATG|P:AT -> A:AT")
+
+    Returns:
+        Tuple of (condition_states, target_states)
+        condition_states: dict with 'A' and/or 'P' keys
+        target_states: dict with 'A' and/or 'P' keys
+    """
+    # Split on "->" (with optional spaces)
+    parts = inject_str.split("->")
+    if len(parts) != 2:
+        raise ValueError(f"Invalid inject rule format: {inject_str}")
+
+    condition_part = parts[0].strip()
+    target_part = parts[1].strip()
+
+    def parse_state_part(part: str) -> dict[str, int]:
+        states: dict[str, int] = {}
+        if not part:
+            return states
+
+        # Split on "|" (with optional spaces)
+        state_parts = [p.strip() for p in part.split("|")]
+
+        for state_part in state_parts:
+            if ":" not in state_part:
+                raise ValueError(f"Invalid state format: {state_part}")
+
+            role, state_str = state_part.split(":", 1)
+            role = role.strip().upper()
+            if role not in ["A", "P"]:
+                raise ValueError(f"Invalid role: {role}, must be 'A' or 'P'")
+
+            parsed_state = parse_state_string(state_str.strip())
+            # Validate that the state string was not empty and produced a valid state
+            if not state_str.strip():
+                raise ValueError(f"Invalid state format: {state_part}")
+            states[role] = parsed_state
+
+        return states
+
+    condition_states = parse_state_part(condition_part)
+    target_states = parse_state_part(target_part)
+
+    # Require at least one target state
+    if not target_states:
+        raise ValueError(f"Invalid inject rule format: {inject_str}")
+
+    return condition_states, target_states
+
+
 # LACP state bits
 LACP_STATE_ACTIVE = 0b00000001
 LACP_STATE_SHORT_TIMEOUT = 0b00000010
@@ -132,6 +233,8 @@ class Port:
         key: int,
         rate_mode: str = LACP_RATE_FAST,
         active_mode: bool = True,
+        inject_rules: list[str] | None = None,
+        actor_ref: "LacpActor | None" = None,
     ) -> None:
         """
         Initialize a new LACP port.
@@ -194,6 +297,20 @@ class Port:
         self.last_actor_state = actor_state
         self.last_partner_state = LACP_STATE_DEFAULTED
 
+        # Initialize inject rules
+        self.inject_rules = inject_rules or []
+        self.parsed_rules = []
+        self.actor_ref = actor_ref
+        self.inject_completed = False
+        if inject_rules:
+            for rule in inject_rules:
+                try:
+                    condition_states, target_states = parse_inject_rule(rule)
+                    self.parsed_rules.append((condition_states, target_states))
+                    logger.info(f"Inject rule configured for {self.iface}: {rule}")
+                except ValueError as e:
+                    logger.error(f"Invalid inject rule '{rule}': {e}")
+
     def _log_state_change(self) -> None:
         """
         Log state changes in the format: "eth0 state changed: A:ATG|P:A -> A:ATG|P:AT"
@@ -218,6 +335,55 @@ class Port:
             self.last_actor_state = current_actor_state
             self.last_partner_state = current_partner_state
 
+    def _check_inject_rules(self) -> None:
+        """
+        Check if inject conditions are met and apply target states.
+        """
+        if not self.parsed_rules:
+            return
+
+        current_actor_state = int(self.actor_info["state"])
+        current_partner_state = int(self.partner_info["state"])
+
+        # Check each rule
+        for condition_states, target_states in self.parsed_rules:
+            # Check if all conditions are met
+            conditions_met = True
+            for role, expected_state in condition_states.items():
+                if role == "A":
+                    if current_actor_state != expected_state:
+                        conditions_met = False
+                        break
+                elif role == "P":
+                    if current_partner_state != expected_state:
+                        conditions_met = False
+                        break
+
+            if conditions_met:
+                # Apply target states
+                inject_applied = False
+                for role, target_state in target_states.items():
+                    if role == "A":
+                        old_state = current_actor_state
+                        self.actor_info["state"] = target_state
+                        logger.info(
+                            f"Inject rule triggered on {self.iface}: "
+                            f"Actor state {format_state_string(old_state)} -> {format_state_string(target_state)}"
+                        )
+                        inject_applied = True
+                    elif role == "P":
+                        old_state = current_partner_state
+                        self.partner_info["state"] = target_state
+                        logger.info(
+                            f"Inject rule triggered on {self.iface}: "
+                            f"Partner state {format_state_string(old_state)} -> {format_state_string(target_state)}"
+                        )
+                        inject_applied = True
+
+                # Notify actor if injection was applied
+                if inject_applied and self.actor_ref:
+                    self.actor_ref.inject_triggered = True
+
     def update_partner(self, partner_info: dict | None) -> None:
         """
         Update partner information from received LACPDU.
@@ -238,9 +404,9 @@ class Port:
                     # In passive mode, only send if partner is active
                     self.should_send = partner_is_active
 
-                # Log partner rate mode for debugging
-                partner_rate = "fast" if (partner_state & LACP_STATE_SHORT_TIMEOUT) else "slow"
-                logger.debug(f"Received LACPDU from partner on {self.iface}, partner rate: {partner_rate}")
+                # Log partner state for debugging
+                partner_state_str = format_state_string(partner_state)
+                logger.debug(f"Received LACPDU from partner on {self.iface}, partner state: {partner_state_str}")
 
                 # Log state change
                 self._log_state_change()
@@ -318,7 +484,10 @@ class Port:
             self._run_selection_logic()
             self._run_mux_machine()
 
-            # 3. Log state changes
+            # 3. Check and apply inject rules
+            self._check_inject_rules()
+
+            # 4. Log state changes
             self._log_state_change()
 
     def get_current_tx_interval(self) -> int:
@@ -381,6 +550,8 @@ class LacpActor:
         interfaces: list[str],
         rate_mode: str = LACP_RATE_FAST,
         active_mode: bool = True,
+        inject_rules: list[str] | None = None,
+        exit_after_inject: bool = False,
     ) -> None:
         """
         Initialize a new LACP actor.
@@ -411,6 +582,8 @@ class LacpActor:
         self.sockets: dict[str, socket.socket] = {}
         self.threads: list[threading.Thread] = []
         self.running = False
+        self.exit_after_inject = exit_after_inject
+        self.inject_triggered = False
 
         # Create ports for each interface
         system_id = get_mac_address(interfaces[0])
@@ -422,6 +595,8 @@ class LacpActor:
                 key=1,
                 rate_mode=rate_mode,
                 active_mode=active_mode,
+                inject_rules=inject_rules,
+                actor_ref=self,
             )
             for i, iface in enumerate(interfaces)
         ]
@@ -441,6 +616,11 @@ class LacpActor:
         last_send_time = 0.0
 
         while self.running:
+            # Check if this port has completed injection
+            if port_obj.inject_completed:
+                logger.info(f"Port {port_obj.iface} injection completed, stopping LACPDU transmission")
+                break
+
             current_time = time.time()
 
             # Check if we should send LACPDU based on active/passive mode
@@ -459,6 +639,16 @@ class LacpActor:
                         sock.send(frame)
                         last_send_time = current_time
                         logger.debug(f"Sent LACPDU on {port_obj.iface} with interval {tx_interval}s")
+
+                        # Check if we should exit after injection
+                        if self.exit_after_inject and self.inject_triggered:
+                            logger.info(
+                                f"Exiting after successful injection and LACPDU transmission on {port_obj.iface}"
+                            )
+                            # Set flag to stop this specific port's threads
+                            port_obj.inject_completed = True
+                            # Exit this thread only
+                            return
                     except Exception as e:
                         logger.error(f"Error sending on {port_obj.iface}: {e}")
 
@@ -476,6 +666,11 @@ class LacpActor:
         sock = self.sockets[port_obj.iface]
 
         while self.running:
+            # Check if this port has completed injection
+            if port_obj.inject_completed:
+                logger.info(f"Port {port_obj.iface} injection completed, stopping LACPDU listening")
+                break
+
             try:
                 sock.settimeout(1.0)
                 packet = sock.recv(2048)
@@ -493,8 +688,17 @@ class LacpActor:
     def _state_machine_updater(self) -> None:
         """Update state machines for all ports periodically."""
         while self.running:
+            # Check if all ports have completed injection
+            all_ports_completed = all(port.inject_completed for port in self.ports)
+            if all_ports_completed and self.exit_after_inject:
+                logger.info("All ports have completed injection, stopping state machine updater")
+                # Set running to False to signal other threads to exit
+                self.running = False
+                break
+
             for port in self.ports:
-                port.update_state()
+                if not port.inject_completed:
+                    port.update_state()
             time.sleep(1)
 
     def _run_ipc_server(self) -> None:
@@ -529,6 +733,8 @@ class LacpActor:
                 continue
             except Exception as e:
                 logger.error(f"IPC Server Error: {e}")
+
+        logger.info("IPC server stopped")
 
         server_sock.close()
         if os.path.exists(self.socket_path):

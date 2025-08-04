@@ -237,6 +237,99 @@ class TestArgumentParserEdgeCases:
         args = parser.parse_args(["-i", "eth0", "--log-file", "daemon.log"])
         assert args.log_file == "daemon.log"
 
+    def test_inject_option(self):
+        """Test that inject option accepts correct values."""
+        parser = create_argument_parser()
+
+        # Valid inject rules
+        valid_rules = [
+            "A:ATG|P:AT -> A:AT",
+            "A:0x40|P:64 -> A:0x80",
+            "P:AT -> A:ATG",
+            "A:ATG -> P:AT",
+            "A:ATG -> A:AT|P:AT",
+            "P:AT -> A:ATG",
+        ]
+        for inject_rule in valid_rules:
+            args = parser.parse_args(["-i", "eth0", "--inject", inject_rule])
+            assert args.inject == [inject_rule]
+
+        # Test with different actions
+        args = parser.parse_args(["-i", "eth0", "-i", "eth1", "--inject", "A:ATG -> P:AT"])
+        assert args.inject == ["A:ATG -> P:AT"]
+
+        # Test with other options
+        args = parser.parse_args(
+            [
+                "-i",
+                "eth0",
+                "--inject",
+                "P:AT -> A:ATG",
+                "--rate",
+                "slow",
+                "--passive",
+                "--log-file",
+                "test.log",
+            ]
+        )
+        assert args.inject == ["P:AT -> A:ATG"]
+
+        # Test multiple inject rules
+        args = parser.parse_args(
+            [
+                "-i",
+                "eth0",
+                "--inject",
+                "P:AT -> A:ATG",
+                "--inject",
+                "A:ATG -> P:AT",
+            ]
+        )
+        assert args.inject == ["P:AT -> A:ATG", "A:ATG -> P:AT"]
+
+        # Test multiple inject rules with complex combinations
+        args = parser.parse_args(
+            [
+                "-i",
+                "eth0",
+                "-i",
+                "eth1",
+                "--inject",
+                "P:AT -> A:ATG",
+                "--inject",
+                "A:ATG -> P:AT",
+                "--inject",
+                "A:ATG|P:AT -> A:AT",
+                "--rate",
+                "slow",
+                "--passive",
+                "--log-file",
+                "test.log",
+            ]
+        )
+        assert args.inject == ["P:AT -> A:ATG", "A:ATG -> P:AT", "A:ATG|P:AT -> A:AT"]
+        assert args.interfaces == ["eth0", "eth1"]
+        assert args.rate == "slow"
+        assert args.passive is True
+        assert args.log_file == "test.log"
+
+        # Test exit-after-inject option
+        args = parser.parse_args(["-i", "eth0", "--exit-after-inject"])
+        assert args.exit_after_inject is True
+
+        # Test exit-after-inject with inject rules
+        args = parser.parse_args(
+            [
+                "-i",
+                "eth0",
+                "--inject",
+                "P:AT -> A:ATG",
+                "--exit-after-inject",
+            ]
+        )
+        assert args.inject == ["P:AT -> A:ATG"]
+        assert args.exit_after_inject is True
+
     def test_required_arguments(self):
         """Test that required arguments are enforced."""
         parser = create_argument_parser()
@@ -279,6 +372,13 @@ class TestIntegration:
                 "WARNING",
                 "--log-file",
                 "daemon.log",
+                "--inject",
+                "A:ATG|P:AT -> A:AT",
+                "--inject",
+                "P:AT -> A:ATG",
+                "--inject",
+                "A:ATG -> P:AT",
+                "--exit-after-inject",
             ]
         )
         validate_arguments(args)

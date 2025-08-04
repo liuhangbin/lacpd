@@ -116,8 +116,17 @@ lacpd -i eth0 --log-level DEBUG
 # Save logs to file
 lacpd -i eth0 --log-file /var/log/lacpd.log
 
+# Inject state changes
+lacpd -i eth0 --inject "A:ATG|P:AT -> A:AT"
+
+# Multiple inject rules
+lacpd -i eth0 --inject "P:AT -> A:ATG" --inject "A:ATG -> P:AT"
+
+# Exit after injection
+lacpd -i eth0 --inject "P:AT -> A:ATG" --exit-after-inject
+
 # Combine multiple options
-sudo lacpd -i eth0 -i eth1 --passive --rate slow -d --log-level INFO --log-file daemon.log
+sudo lacpd -i eth0 -i eth1 --passive --rate slow -d --log-level INFO --log-file daemon.log --inject "P:AT -> A:ATG" --inject "A:ATG -> P:AT" --exit-after-inject
 ```
 
 ## Configuration Options
@@ -135,6 +144,8 @@ sudo lacpd -i eth0 -i eth1 --passive --rate slow -d --log-level INFO --log-file 
 | `-p, --pretty` | Pretty-printed JSON output | False |
 | `--log-level` | Log level | INFO |
 | `--log-file` | Save log messages to specified file | None |
+| `--inject` | Inject state changes when conditions are met | None |
+| `--exit-after-inject` | Exit after successful injection and LACPDU transmission | False |
 
 ## Project Structure
 
@@ -208,6 +219,55 @@ uv run mypy src/
 # Run all quality checks
 uv run pre-commit run --all-files
 ```
+
+## State Injection Feature
+
+The `--inject` parameter allows you to automatically change LACP states when specific conditions are met. This is useful for testing how LACP implementations handle unexpected state transitions.
+
+### Format
+```
+--inject "CONDITION -> TARGET"
+```
+
+Where:
+- `CONDITION`: State conditions that must be met (optional)
+- `TARGET`: States to change to when conditions are met
+- Both can specify Actor (A) and/or Partner (P) states
+- Multiple states are separated by `|`
+- The arrow `->` separates conditions from targets
+
+### State Formats
+- **Bit string**: `ATG` (ACTIVE|SHORT_TIMEOUT|AGGREGATION)
+- **Hexadecimal**: `0x40` (64 in decimal)
+- **Decimal**: `64`
+
+### Examples
+```bash
+# When partner is AT, change actor to AT
+--inject "P:AT -> A:AT"
+
+# When both actor and partner are in specific states, change actor
+--inject "A:ATG|P:AT -> A:AT"
+
+# Using hex values
+--inject "A:0x40|P:64 -> A:0x80"
+
+# Change partner state when actor reaches specific state
+--inject "A:ATG -> P:AT"
+
+# Multiple inject rules (can be specified multiple times)
+--inject "P:AT -> A:ATG" --inject "A:ATG -> P:AT"
+```
+
+### State Bits
+- `A`: ACTIVE
+- `T`: SHORT_TIMEOUT
+- `G`: AGGREGATION
+- `S`: SYNC
+- `C`: COLLECTING
+- `D`: DISTRIBUTING
+- `F`: DEFAULTED
+- `E`: EXPIRED
 
 ## LACP Protocol Overview
 

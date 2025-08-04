@@ -172,6 +172,8 @@ def run_daemon(
     active_mode: bool = True,
     daemon_mode: bool = False,
     log_file: str | None = None,
+    inject_rules: list[str] | None = None,
+    exit_after_inject: bool = False,
 ) -> None:
     """
     Run the LACP daemon.
@@ -194,12 +196,29 @@ def run_daemon(
         f"Starting LACP simulation on interfaces: {interfaces} in {mode_str} mode with {rate_mode} rate{daemon_str}"
     )
 
-    actor = LacpActor(interfaces, rate_mode=rate_mode, active_mode=active_mode)
+    actor = LacpActor(
+        interfaces,
+        rate_mode=rate_mode,
+        active_mode=active_mode,
+        inject_rules=inject_rules,
+        exit_after_inject=exit_after_inject,
+    )
 
     try:
         actor.start()
-        while True:
-            time.sleep(1)
+
+        # If exit_after_inject is enabled, wait for threads to complete
+        if exit_after_inject:
+            logger.info("Waiting for injection completion...")
+            # Wait for all threads to complete
+            for thread in actor.threads:
+                thread.join()
+            logger.info("All threads completed, exiting daemon")
+        else:
+            # Normal daemon mode - wait indefinitely
+            while True:
+                time.sleep(1)
+
     except KeyboardInterrupt:
         if not daemon_mode:
             logger.info("Shutting down LACP daemon...")
@@ -296,6 +315,23 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Save log messages to the specified file",
     )
 
+    parser.add_argument(
+        "--inject",
+        type=str,
+        action="append",
+        help=(
+            "Inject state changes when conditions are met. "
+            "Format: 'A:ATG|P:AT -> A:AT' or 'A:0x40|P:64 -> A:0x80'. "
+            "Can be specified multiple times."
+        ),
+    )
+
+    parser.add_argument(
+        "--exit-after-inject",
+        action="store_true",
+        help="Exit the program after successfully injecting state changes and sending new LACPDUs",
+    )
+
     return parser
 
 
@@ -363,6 +399,8 @@ def main() -> None:
                 active_mode=not args.passive,
                 daemon_mode=args.daemon,
                 log_file=args.log_file,
+                inject_rules=args.inject,
+                exit_after_inject=args.exit_after_inject,
             )
 
     except KeyboardInterrupt:
