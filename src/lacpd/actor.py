@@ -21,6 +21,37 @@ from lacpd.packet import build_ethernet_frame, build_lacpdu, parse_lacpdu
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
+def format_state_string(state: int) -> str:
+    """
+    Format LACP state bits into a compact string representation.
+
+    Args:
+        state: LACP state bits
+
+    Returns:
+        Compact state string (e.g., "ATG" for ACTIVE|AGGREGATION|SYNC)
+    """
+    bits = []
+    if state & LACP_STATE_ACTIVE:
+        bits.append("A")
+    if state & LACP_STATE_SHORT_TIMEOUT:
+        bits.append("T")
+    if state & LACP_STATE_AGGREGATION:
+        bits.append("G")
+    if state & LACP_STATE_SYNC:
+        bits.append("S")
+    if state & LACP_STATE_COLLECTING:
+        bits.append("C")
+    if state & LACP_STATE_DISTRIBUTING:
+        bits.append("D")
+    if state & LACP_STATE_DEFAULTED:
+        bits.append("F")
+    if state & LACP_STATE_EXPIRED:
+        bits.append("E")
+    return "".join(bits) if bits else "N"
+
+
 # LACP state bits
 LACP_STATE_ACTIVE = 0b00000001
 LACP_STATE_SHORT_TIMEOUT = 0b00000010
@@ -125,6 +156,10 @@ class Port:
         self.mux_state = "DETACHED"
         self.selected = False
 
+        # State tracking for logging
+        self.last_actor_state = 0
+        self.last_partner_state = 0
+
         # Actor information (our side)
         # Initialize state based on rate_mode and active_mode
         actor_state = LACP_STATE_AGGREGATION  # Always set aggregation bit
@@ -155,6 +190,34 @@ class Port:
         }
         self.partner_info: dict[str, int | str] = self.partner_info_default.copy()
 
+        # Initialize state tracking
+        self.last_actor_state = actor_state
+        self.last_partner_state = LACP_STATE_DEFAULTED
+
+    def _log_state_change(self) -> None:
+        """
+        Log state changes in the format: "eth0 state changed: A:ATG|P:A -> A:ATG|P:AT"
+        """
+        current_actor_state = int(self.actor_info["state"])
+        current_partner_state = int(self.partner_info["state"])
+
+        # Only log if there's a change
+        if current_actor_state != self.last_actor_state or current_partner_state != self.last_partner_state:
+            old_actor_str = format_state_string(self.last_actor_state)
+            old_partner_str = format_state_string(self.last_partner_state)
+            new_actor_str = format_state_string(current_actor_state)
+            new_partner_str = format_state_string(current_partner_state)
+
+            logger.info(
+                f"{self.iface} state changed: "
+                f"A:{old_actor_str}|P:{old_partner_str} -> "
+                f"A:{new_actor_str}|P:{new_partner_str}"
+            )
+
+            # Update last states
+            self.last_actor_state = current_actor_state
+            self.last_partner_state = current_partner_state
+
     def update_partner(self, partner_info: dict | None) -> None:
         """
         Update partner information from received LACPDU.
@@ -178,6 +241,9 @@ class Port:
                 # Log partner rate mode for debugging
                 partner_rate = "fast" if (partner_state & LACP_STATE_SHORT_TIMEOUT) else "slow"
                 logger.debug(f"Received LACPDU from partner on {self.iface}, partner rate: {partner_rate}")
+
+                # Log state change
+                self._log_state_change()
             else:
                 # Clear partner information when None is passed
                 self.partner_info = self.partner_info_default.copy()
@@ -189,6 +255,9 @@ class Port:
                     self.should_send = False
 
                 logger.debug(f"Cleared partner information on {self.iface}")
+
+                # Log state change
+                self._log_state_change()
 
     def _run_selection_logic(self) -> None:
         """Run the LACP selection logic to determine if port is selected."""
@@ -248,6 +317,9 @@ class Port:
             # 2. Run state machines
             self._run_selection_logic()
             self._run_mux_machine()
+
+            # 3. Log state changes
+            self._log_state_change()
 
     def get_current_tx_interval(self) -> int:
         """

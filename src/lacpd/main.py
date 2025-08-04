@@ -191,7 +191,7 @@ def run_daemon(
     daemon_str = " (daemon)" if daemon_mode else ""
 
     logger.info(
-        f"Starting LACP simulation on interfaces: {interfaces} " f"in {mode_str} mode with {rate_mode} rate{daemon_str}"
+        f"Starting LACP simulation on interfaces: {interfaces} in {mode_str} mode with {rate_mode} rate{daemon_str}"
     )
 
     actor = LacpActor(interfaces, rate_mode=rate_mode, active_mode=active_mode)

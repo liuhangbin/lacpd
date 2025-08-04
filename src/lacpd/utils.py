@@ -173,7 +173,7 @@ def kill_lacpd_processes(namespace: str | None = None) -> bool:
 
                 # Wait for the process to terminate and verify it's gone
                 max_wait_time = 5.0  # Maximum wait time in seconds
-                wait_interval = 0.1   # Check interval in seconds
+                wait_interval = 0.1  # Check interval in seconds
                 waited_time = 0.0
 
                 while waited_time < max_wait_time:
