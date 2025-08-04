@@ -113,8 +113,11 @@ lacpd -k -n my_namespace
 # Set log level
 lacpd -i eth0 --log-level DEBUG
 
+# Save logs to file
+lacpd -i eth0 --log-file /var/log/lacpd.log
+
 # Combine multiple options
-sudo lacpd -i eth0 -i eth1 --passive --rate slow -d --log-level INFO
+sudo lacpd -i eth0 -i eth1 --passive --rate slow -d --log-level INFO --log-file daemon.log
 ```
 
 ## Configuration Options
@@ -131,6 +134,7 @@ sudo lacpd -i eth0 -i eth1 --passive --rate slow -d --log-level INFO
 | `-j, --json` | JSON format output | False |
 | `-p, --pretty` | Pretty-printed JSON output | False |
 | `--log-level` | Log level | INFO |
+| `--log-file` | Save log messages to specified file | None |
 
 ## Project Structure
 
@@ -261,6 +265,9 @@ This project is licensed under the GNU General Public License v3 or later (GPLv3
 ```bash
 # Enable debug logging
 lacpd -i eth0 --log-level DEBUG
+
+# Save debug logs to file
+lacpd -i eth0 --log-level DEBUG --log-file debug.log
 
 # Check system logs
 journalctl -f

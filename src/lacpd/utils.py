@@ -279,6 +279,7 @@ def setup_logging(
     level: str | int = logging.INFO,
     format_string: str | None = None,
     log_file: str | None = None,
+    daemon_mode: bool = False,
 ) -> None:
     """
     Setup logging configuration.
@@ -300,10 +301,11 @@ def setup_logging(
     # Create handlers
     handlers = []
 
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setFormatter(formatter)
-    handlers.append(console_handler)
+    # Console handler (only in non-daemon mode)
+    if not daemon_mode:
+        console_handler = logging.StreamHandler(sys.stderr)
+        console_handler.setFormatter(formatter)
+        handlers.append(console_handler)
 
     # File handler (if specified)
     if log_file:

@@ -226,6 +226,23 @@ class TestArgumentParserEdgeCases:
         with pytest.raises(SystemExit):
             parser.parse_args(["-s", "--log-level", "INVALID"])
 
+    def test_log_file_option(self):
+        """Test that log file option accepts correct values."""
+        parser = create_argument_parser()
+
+        # Valid log file paths
+        test_files = ["/tmp/test.log", "test.log", "./logs/app.log", "/var/log/lacpd.log"]
+        for log_file in test_files:
+            args = parser.parse_args(["-s", "--log-file", log_file])
+            assert args.log_file == log_file
+
+        # Test with different actions
+        args = parser.parse_args(["-k", "--log-file", "kill.log"])
+        assert args.log_file == "kill.log"
+
+        args = parser.parse_args(["-i", "eth0", "--log-file", "daemon.log"])
+        assert args.log_file == "daemon.log"
+
     def test_required_arguments(self):
         """Test that required arguments are enforced."""
         parser = create_argument_parser()
@@ -253,7 +270,8 @@ class TestIntegration:
             "-j",
             "-n", "test_ns",
             "-i", "eth0",
-            "--log-level", "DEBUG"
+            "--log-level", "DEBUG",
+            "--log-file", "status.log"
         ])
         validate_arguments(args)
 
@@ -264,7 +282,8 @@ class TestIntegration:
             "--rate", "slow",
             "--passive",
             "-d",
-            "--log-level", "WARNING"
+            "--log-level", "WARNING",
+            "--log-file", "daemon.log"
         ])
         validate_arguments(args)
 
@@ -272,6 +291,7 @@ class TestIntegration:
         args = parser.parse_args([
             "-k",
             "-n", "test_ns",
-            "--log-level", "ERROR"
+            "--log-level", "ERROR",
+            "--log-file", "kill.log"
         ])
         validate_arguments(args)

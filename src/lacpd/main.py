@@ -171,6 +171,7 @@ def run_daemon(
     rate_mode: str = LACP_RATE_FAST,
     active_mode: bool = True,
     daemon_mode: bool = False,
+    log_file: str | None = None,
 ) -> None:
     """
     Run the LACP daemon.
@@ -184,7 +185,7 @@ def run_daemon(
     # Daemonize if requested
     if daemon_mode:
         daemonize()
-        setup_logging()
+        setup_logging(log_file=log_file, daemon_mode=True)
 
     mode_str = "passive" if not active_mode else "active"
     daemon_str = " (daemon)" if daemon_mode else ""
@@ -289,6 +290,12 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help="Set logging level (default: INFO)",
     )
 
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        help="Save log messages to the specified file",
+    )
+
     return parser
 
 
@@ -329,7 +336,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Setup logging
-    setup_logging(level=getattr(logging, args.log_level))
+    setup_logging(level=getattr(logging, args.log_level), log_file=args.log_file)
 
     try:
         validate_arguments(args)
@@ -355,6 +362,7 @@ def main() -> None:
                 rate_mode=args.rate,
                 active_mode=not args.passive,
                 daemon_mode=args.daemon,
+                log_file=args.log_file,
             )
 
     except KeyboardInterrupt:
