@@ -7,13 +7,11 @@ SPDX-License-Identifier: GPL-3.0-or-later
 """
 
 import argparse
-import sys
-from unittest.mock import patch, MagicMock
 
 import pytest
 
-from lacpd.main import create_argument_parser, validate_arguments
 from lacpd.actor import LACP_RATE_FAST, LACP_RATE_SLOW
+from lacpd.main import create_argument_parser, validate_arguments
 
 
 class TestArgumentParser:
@@ -140,13 +138,9 @@ class TestArgumentValidation:
         validate_arguments(args)
 
         # Daemon start with all options
-        args = parser.parse_args([
-            "-i", "eth0", "-i", "eth1",
-            "--rate", "slow",
-            "--passive",
-            "-d",
-            "--log-level", "DEBUG"
-        ])
+        args = parser.parse_args(
+            ["-i", "eth0", "-i", "eth1", "--rate", "slow", "--passive", "-d", "--log-level", "DEBUG"]
+        )
         validate_arguments(args)
 
     def test_invalid_daemon_start(self):
@@ -265,33 +259,30 @@ class TestIntegration:
         parser = create_argument_parser()
 
         # Status query with all valid options
-        args = parser.parse_args([
-            "-s",
-            "-j",
-            "-n", "test_ns",
-            "-i", "eth0",
-            "--log-level", "DEBUG",
-            "--log-file", "status.log"
-        ])
+        args = parser.parse_args(
+            ["-s", "-j", "-n", "test_ns", "-i", "eth0", "--log-level", "DEBUG", "--log-file", "status.log"]
+        )
         validate_arguments(args)
 
         # Daemon start with all valid options
-        args = parser.parse_args([
-            "-i", "eth0",
-            "-i", "eth1",
-            "--rate", "slow",
-            "--passive",
-            "-d",
-            "--log-level", "WARNING",
-            "--log-file", "daemon.log"
-        ])
+        args = parser.parse_args(
+            [
+                "-i",
+                "eth0",
+                "-i",
+                "eth1",
+                "--rate",
+                "slow",
+                "--passive",
+                "-d",
+                "--log-level",
+                "WARNING",
+                "--log-file",
+                "daemon.log",
+            ]
+        )
         validate_arguments(args)
 
         # Kill command with valid options
-        args = parser.parse_args([
-            "-k",
-            "-n", "test_ns",
-            "--log-level", "ERROR",
-            "--log-file", "kill.log"
-        ])
+        args = parser.parse_args(["-k", "-n", "test_ns", "--log-level", "ERROR", "--log-file", "kill.log"])
         validate_arguments(args)

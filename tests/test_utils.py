@@ -11,8 +11,6 @@ SPDX-License-Identifier: GPL-3.0-or-later
 import json
 from unittest.mock import Mock, mock_open, patch
 
-import pytest
-
 from lacpd.utils import (
     daemonize,
     get_daemon_status_from_socket,
@@ -208,7 +206,7 @@ class TestProcessManagement:
         # Should have called kill twice: SIGTERM + check
         assert mock_kill.call_count == 2
         mock_kill.assert_any_call(12345, 15)  # SIGTERM
-        mock_kill.assert_any_call(12345, 0)   # Check if process exists
+        mock_kill.assert_any_call(12345, 0)  # Check if process exists
         # Should have removed socket after process terminated
         mock_remove.assert_called_once_with("/tmp/lacpd.sock")
 
@@ -244,8 +242,29 @@ class TestDaemonization:
     @patch("os.setsid")
     @patch("builtins.open", new_callable=mock_open)
     @patch("os.dup2")
-    def test_daemonize_success(self, mock_dup2, mock_file, mock_setsid, mock_umask, mock_chdir, mock_fork):
+    @patch("os._exit")
+    @patch("sys.stdin")
+    @patch("sys.stdout")
+    @patch("sys.stderr")
+    def test_daemonize_success(
+        self,
+        mock_stderr,
+        mock_stdout,
+        mock_stdin,
+        mock_exit,
+        mock_dup2,
+        mock_file,
+        mock_setsid,
+        mock_umask,
+        mock_chdir,
+        mock_fork,
+    ):
         """Test successful daemonization."""
+        # Mock file descriptors
+        mock_stdin.fileno.return_value = 0
+        mock_stdout.fileno.return_value = 1
+        mock_stderr.fileno.return_value = 2
+
         mock_fork.side_effect = [
             1,
             0,
@@ -257,14 +276,29 @@ class TestDaemonization:
         mock_chdir.assert_called_once_with("/")
         mock_umask.assert_called_once_with(0)
         mock_setsid.assert_called_once()
+        # Verify that os._exit was called once (for the first parent process)
+        assert mock_exit.call_count == 1
+        mock_exit.assert_called_once_with(0)
 
     @patch("os.fork")
-    def test_daemonize_fork_error(self, mock_fork):
+    @patch("os._exit")
+    @patch("sys.stdin")
+    @patch("sys.stdout")
+    @patch("sys.stderr")
+    def test_daemonize_fork_error(self, mock_stderr, mock_stdout, mock_stdin, mock_exit, mock_fork):
         """Test daemonization with fork error."""
+        # Mock file descriptors
+        mock_stdin.fileno.return_value = 0
+        mock_stdout.fileno.return_value = 1
+        mock_stderr.fileno.return_value = 2
+
         mock_fork.side_effect = OSError("Fork failed")
 
-        with pytest.raises(SystemExit):
-            daemonize()
+        daemonize()
+
+        # Verify that os._exit was called with error code 1 (called twice due to both forks failing)
+        assert mock_exit.call_count == 2
+        mock_exit.assert_any_call(1)
 
 
 class TestLogging:
@@ -276,6 +310,7 @@ class TestLogging:
     def test_setup_logging_default(self, mock_get_logger, mock_stream_handler, mock_formatter):
         """Test logging setup with default parameters."""
         mock_logger = Mock()
+        mock_logger.handlers = []  # Initialize handlers list
         mock_get_logger.return_value = mock_logger
         mock_handler = Mock()
         mock_stream_handler.return_value = mock_handler
@@ -294,6 +329,7 @@ class TestLogging:
     def test_setup_logging_with_file(self, mock_get_logger, mock_file_handler, mock_stream_handler, mock_formatter):
         """Test logging setup with file handler."""
         mock_logger = Mock()
+        mock_logger.handlers = []  # Initialize handlers list
         mock_get_logger.return_value = mock_logger
         mock_handler = Mock()
         mock_stream_handler.return_value = mock_handler
