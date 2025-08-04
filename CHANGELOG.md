@@ -18,11 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enhanced logging with partner state information in LACPDU reception
 - Comprehensive test suite for inject functionality
 
-### Changed
-- Enhanced logging system to support dual output (console + file)
-- Updated argument parser to include new options
-- Extended test coverage for new functionality
-
 ## [0.1.0] - 2025-08-01
 
 ### Added
@@ -37,15 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive test suite
 - Build system with PyInstaller support
 - Development tools integration (black, ruff, mypy, pytest)
-
-### Features
-- LACP Actor implementation with full state machine
-- LACPDU packet construction and parsing
-- Ethernet frame handling
-- Unix socket communication for status queries
-- Process management and daemonization
-- Network namespace isolation support
-- Command-line interface with comprehensive options
 
 ### Technical Details
 - Python 3.12+ compatibility

@@ -76,17 +76,7 @@ extend-exclude = '''
 )/
 '''
 
-[tool.flake8]
-max-line-length = 120
-extend-ignore = ["E203", "W503"]
-exclude = [
-    ".git",
-    "__pycache__",
-    "build",
-    "dist",
-    ".venv",
-    ".eggs",
-]
+
 
 [tool.mypy]
 python_version = "3.12"

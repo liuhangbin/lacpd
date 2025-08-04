@@ -163,9 +163,22 @@ lacpd/
 │   ├── test_main.py         # Main module tests
 │   ├── test_packet.py       # Packet tests
 │   ├── test_utils.py        # Utility tests
-│   └── run_test.sh          # Integration test script
+│   ├── test_actor.py        # Actor implementation tests
+│   ├── test_integration_inject.py  # Inject functionality tests
+│   ├── test_lacp.sh         # Integration test script
+│   └── test_inject.sh       # Inject functionality test script
+├── .github/
+│   └── workflows/
+│       ├── ci.yml           # Continuous integration
+│       ├── release.yml      # Release automation
+│       ├── test-workflow.yml # Test workflow
+│       └── README.md        # Workflow documentation
+├── .cursor/                 # Cursor AI configuration
 ├── lacpd.spec               # PyInstaller specification
 ├── Makefile                 # Build and development tasks
+├── pyproject.toml           # Project configuration
+├── .pre-commit-config.yaml  # Pre-commit hooks
+├── CHANGELOG.md             # Project changelog
 ├── README.md                # Project documentation
 └── LICENSE                  # License
 ```
@@ -303,10 +316,11 @@ Contributions are welcome! Please follow these steps:
 
 ### Development Guidelines
 
-- Follow PEP 8 code style
+- Follow PEP 8 code style (enforced by ruff and black)
 - Add appropriate type annotations
 - Write tests for new features
 - Update documentation
+- Run code quality checks: `make dev-check`
 
 ## License
 
