@@ -16,9 +16,9 @@ Example:
     >>> actor.stop()
 """
 
-__version__ = "1.0.0"
+__version__ = "0.1.1"
 __author__ = "LACP Daemon Team"
-__email__ = "team@example.com"
+__email__ = "liuhangbin@gmail.com"
 
 from lacpd.actor import (
     LACP_RATE_FAST,
