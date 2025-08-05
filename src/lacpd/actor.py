@@ -207,14 +207,61 @@ def get_mac_address(ifname: str) -> str:
     Raises:
         OSError: If interface information cannot be retrieved
     """
-    import fcntl
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        info = fcntl.ioctl(sock.fileno(), 0x8927, struct.pack("256s", ifname[:15].encode("utf-8")))
-        return ":".join(f"{b:02x}" for b in info[18:24])
-    finally:
-        sock.close()
+        import fcntl
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            info = fcntl.ioctl(sock.fileno(), 0x8927, struct.pack("256s", ifname[:15].encode("utf-8")))
+            return ":".join(f"{b:02x}" for b in info[18:24])
+        finally:
+            sock.close()
+    except ImportError:
+        raise OSError("fcntl module not available. This application requires Linux/Unix platform.") from None
+    except OSError as e:
+        raise OSError(f"Failed to get MAC address for interface {ifname}: {e}") from e
+
+
+def set_promiscuous_mode(interface: str, enable: bool = True) -> None:
+    """
+    Set or clear promiscuous mode on a network interface.
+
+    Args:
+        interface: Interface name
+        enable: True to enable promiscuous mode, False to disable
+
+    Raises:
+        OSError: If the operation fails
+    """
+    try:
+        import fcntl
+
+        # Define constants
+        SIOCGIFFLAGS = 0x8913
+        SIOCSIFFLAGS = 0x8914
+        IFF_PROMISC = 0x100
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            # Get current flags
+            ifreq = struct.pack("16sH", interface.encode("utf-8"), 0)
+            flags = struct.unpack("16sH", fcntl.ioctl(sock.fileno(), SIOCGIFFLAGS, ifreq))[1]
+
+            # Set or clear promiscuous bit
+            if enable:
+                flags |= IFF_PROMISC
+            else:
+                flags &= ~IFF_PROMISC
+
+            # Apply new flags
+            ifreq = struct.pack("16sH", interface.encode("utf-8"), flags)
+            fcntl.ioctl(sock.fileno(), SIOCSIFFLAGS, ifreq)
+        finally:
+            sock.close()
+    except ImportError:
+        raise OSError("fcntl module not available. This application requires Linux/Unix platform.") from None
+    except Exception as e:
+        raise OSError(f"Failed to {'enable' if enable else 'disable'} promiscuous mode on {interface}: {e}") from e
 
 
 class Port:
@@ -836,6 +883,14 @@ class LacpActor:
                 if hasattr(socket, "AF_PACKET"):
                     sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x8809))
                     sock.bind((port.iface, 0))
+
+                    # Set promiscuous mode to receive LACP packets
+                    try:
+                        set_promiscuous_mode(port.iface, enable=True)
+                        logger.info(f"Set promiscuous mode on interface {port.iface}")
+                    except Exception as e:
+                        logger.warning(f"Failed to set promiscuous mode on {port.iface}: {e}")
+
                     self.sockets[port.iface] = sock
                 else:
                     logger.error("socket.AF_PACKET is not available on this platform.")
@@ -879,8 +934,15 @@ class LacpActor:
             if thread.is_alive():
                 thread.join(timeout=0.5)
 
-        # Close all sockets
-        for sock in self.sockets.values():
-            sock.close()
+        # Close all sockets and restore interface flags
+        for port_name, sock in self.sockets.items():
+            try:
+                # Restore interface flags (remove promiscuous mode)
+                set_promiscuous_mode(port_name, enable=False)
+                logger.debug(f"Restored interface flags for {port_name}")
+            except (ImportError, Exception) as e:
+                logger.debug(f"Could not restore interface flags for {port_name}: {e}")
+            finally:
+                sock.close()
 
         logger.info("LACP actor stopped.")
