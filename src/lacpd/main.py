@@ -184,6 +184,18 @@ def run_daemon(
         active_mode: Whether to run in active mode
         daemon_mode: Whether to run as a background daemon
     """
+    # Pre-fetch MAC addresses before daemonization to avoid PyInstaller issues
+    if daemon_mode:
+        try:
+            from lacpd.actor import get_mac_address
+
+            # Test MAC address retrieval before daemonization
+            for iface in interfaces:
+                get_mac_address(iface)
+            logger.debug("Successfully pre-fetched MAC addresses before daemonization")
+        except Exception as e:
+            logger.warning(f"Failed to pre-fetch MAC addresses: {e}")
+
     # Daemonize if requested
     if daemon_mode:
         daemonize()
