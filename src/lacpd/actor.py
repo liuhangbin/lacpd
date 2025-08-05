@@ -503,10 +503,7 @@ class Port:
         else:
             # No LACPDU info received, cannot perform selection
             self.selected = False
-            logger.debug(
-                f"Actor selection on {self.iface}: "
-                f"no LACPDU info received, selected=False"
-            )
+            logger.debug(f"Actor selection on {self.iface}: no LACPDU info received, selected=False")
 
     def _run_mux_machine(self) -> None:
         """Run the LACP Mux state machine."""

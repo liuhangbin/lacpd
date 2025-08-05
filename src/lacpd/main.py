@@ -187,7 +187,6 @@ def run_daemon(
     # Daemonize if requested
     if daemon_mode:
         daemonize()
-        setup_logging(log_file=log_file, daemon_mode=True)
 
     mode_str = "passive" if not active_mode else "active"
     daemon_str = " (daemon)" if daemon_mode else ""
@@ -371,9 +370,6 @@ def main() -> None:
     parser = create_argument_parser()
     args = parser.parse_args()
 
-    # Setup logging
-    setup_logging(level=getattr(logging, args.log_level), log_file=args.log_file)
-
     try:
         validate_arguments(args)
     except SystemExit as e:
@@ -381,9 +377,13 @@ def main() -> None:
 
     try:
         if args.kill:
+            # Setup logging for kill operation
+            setup_logging(level=getattr(logging, args.log_level), log_file=args.log_file)
             kill_lacpd_processes(namespace=args.namespace)
 
         elif args.status:
+            # Setup logging for status query
+            setup_logging(level=getattr(logging, args.log_level), log_file=args.log_file)
             # Use -i interfaces as filter when querying status
             query_status(
                 as_json=args.json,
@@ -393,6 +393,8 @@ def main() -> None:
             )
 
         elif args.interfaces:
+            # Setup logging for daemon operation
+            setup_logging(level=getattr(logging, args.log_level), log_file=args.log_file, daemon_mode=args.daemon)
             run_daemon(
                 interfaces=args.interfaces,
                 rate_mode=args.rate,
