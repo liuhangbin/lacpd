@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lacpd"
-version = "0.1.1"
+version = "0.1.2"
 description = "A LACP (Link Aggregation Control Protocol) daemon for simulating LACP negotiation"
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}

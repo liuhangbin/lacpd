@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2025-08-05
+
+### Fixed
+- Fixed daemon mode logging issue where DEBUG level logs were not written to log file
+- Fixed LACP negotiation with Linux 802.3ad bond
+- Fixed PyInstaller packaging issue with fcntl module in daemon mode
+- Fixed LACP packet reception issue by adding promiscuous mode support
+
 ## [0.1.1] - 2025-08-04
 
 ### Added
